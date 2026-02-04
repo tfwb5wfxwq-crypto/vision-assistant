@@ -1,14 +1,13 @@
 const express = require('express');
 const cors = require('cors');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Anthropic = require('@anthropic-ai/sdk');
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-// Gemini 2.0 Flash - SEULE API utilisée
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+// Claude Sonnet 3.5 - meilleur en raisonnement logique
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Prompts
 const PROMPT_SIMPLE = `Tu es un expert en résolution de problèmes. RÉSOUS et DONNE LA RÉPONSE.
@@ -55,10 +54,10 @@ RÈGLES :
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', model: 'gemini-2.0-flash', tts: 'browser', modes: ['simple', 'complex'] });
+  res.json({ status: 'ok', model: 'claude-sonnet-4-20250514', tts: 'browser', modes: ['simple', 'complex'] });
 });
 
-// Main analyze endpoint - retourne TEXTE seulement, TTS fait par le navigateur
+// Main analyze endpoint
 app.post('/analyze', async (req, res) => {
   const startTime = Date.now();
 
@@ -75,15 +74,17 @@ app.post('/analyze', async (req, res) => {
 
     console.log(`[${new Date().toISOString()}] Mode: ${isComplex ? 'COMPLEX' : 'SIMPLE'}, Images: ${imageList.length}, Transcription: ${transcription ? 'yes' : 'no'}`);
 
-    // Build Gemini request
-    const parts = [];
+    // Build Claude request
+    const content = [];
 
     // Add images
     for (const imgData of imageList) {
       const base64Data = imgData.replace(/^data:image\/\w+;base64,/, '');
-      parts.push({
-        inlineData: {
-          mimeType: 'image/jpeg',
+      content.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: 'image/jpeg',
           data: base64Data
         }
       });
@@ -94,18 +95,22 @@ app.post('/analyze', async (req, res) => {
     if (transcription) {
       prompt += `\n\nLe professeur dit : "${transcription}"`;
     }
-    parts.push({ text: prompt });
+    content.push({ type: 'text', text: prompt });
 
-    // Call Gemini
-    console.log('Calling Gemini 2.0 Flash...');
-    const result = await model.generateContent(parts);
-    const responseText = result.response.text();
-    console.log(`Gemini response: "${responseText.substring(0, 100)}..."`);
+    // Call Claude
+    console.log('Calling Claude Sonnet...');
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 200,
+      messages: [{ role: 'user', content }]
+    });
+
+    const responseText = response.content[0].text;
+    console.log(`Claude response: "${responseText.substring(0, 100)}..."`);
 
     const totalTime = Date.now() - startTime;
     console.log(`Total time: ${totalTime}ms`);
 
-    // Retourne TEXTE seulement - le navigateur fait le TTS
     res.json({
       success: true,
       text: responseText,
@@ -125,7 +130,7 @@ app.post('/analyze', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Vision Assistant Server running on port ${PORT}`);
-  console.log('Model: Gemini 2.0 Flash (Google only - no OpenAI)');
+  console.log('Model: Claude Sonnet 3.5 (Anthropic)');
   console.log('TTS: Browser-based (Web Speech API)');
   console.log('Endpoints:');
   console.log('  GET  /health');
