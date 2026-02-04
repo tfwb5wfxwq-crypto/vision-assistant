@@ -35,6 +35,21 @@
             background: transparent;
             transition: all 0.2s;
         }
+        #answer {
+            position: absolute;
+            bottom: 40px;
+            left: 20px;
+            right: 20px;
+            color: #fff;
+            font-family: system-ui, sans-serif;
+            font-size: 18px;
+            font-weight: 600;
+            text-align: center;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        #answer.show { opacity: 1; }
         #dot.ready { background: #22c55e; }
         #dot.processing { background: #3b82f6; animation: pulse 0.5s infinite; }
         #dot.speaking { background: #a855f7; animation: pulse 0.8s infinite; }
@@ -80,6 +95,7 @@
     <canvas id="canvas"></canvas>
     <div id="overlay" class="hidden">
         <div id="dot"></div>
+        <div id="answer"></div>
     </div>
 
     <script>
@@ -91,6 +107,7 @@
         const canvas = document.getElementById('canvas');
         const overlay = document.getElementById('overlay');
         const dot = document.getElementById('dot');
+        const answerEl = document.getElementById('answer');
 
         let stream = null;
         let synth = window.speechSynthesis;
@@ -118,7 +135,7 @@
                     const u = new SpeechSynthesisUtterance(text);
                     u.voice = frenchVoice;
                     u.lang = 'fr-FR';
-                    u.rate = 1.1;
+                    u.rate = 0.9;
                     u.onend = resolve;
                     u.onerror = resolve;
                     // iOS keep-alive
@@ -205,8 +222,12 @@
 
                 if (data.success && data.text) {
                     dot.className = 'speaking';
+                    answerEl.textContent = data.text;
+                    answerEl.classList.add('show');
                     await speak(data.text);
                     dot.className = 'ready';
+                    // Keep answer visible for 5 more seconds
+                    setTimeout(() => answerEl.classList.remove('show'), 5000);
                 } else {
                     throw new Error(data.error || 'Erreur');
                 }
