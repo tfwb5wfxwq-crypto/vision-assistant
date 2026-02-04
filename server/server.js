@@ -10,56 +10,30 @@ app.use(express.json({ limit: '50mb' }));
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Prompts
-const PROMPT_SIMPLE = `RAVEN MATRIX EXPERT. Protocole OBLIGATOIRE :
+const PROMPT_SIMPLE = `Tu es un expert qui résout des exercices. Analyse l'image et donne LA BONNE RÉPONSE.
 
-1. PERCEPTION - Décris CHAQUE cellule [ligne,colonne] :
-   - Formes présentes
-   - Nombre d'éléments
-   - Taille (petit/moyen/grand)
-   - Remplissage (noir/blanc/gris/hachuré)
-   - Orientation (angle)
-   - Position dans la cellule
+MÉTHODE :
+1. Lis attentivement la question et les données (tableaux, graphiques, texte)
+2. Identifie ce qu'on te demande
+3. Fais les calculs nécessaires étape par étape
+4. Vérifie ton résultat
+5. Choisis la bonne réponse parmi les options
 
-2. RÈGLES PAR LIGNE - Pour chaque ligne, teste :
-   - Constante ? (attribut identique)
-   - Progression ? (+1, +2, etc.)
-   - Distribution de 3 ? (3 valeurs différentes)
-   - Addition/Soustraction ? (C1+C2=C3)
-   - XOR ? (éléments communs disparaissent)
-   - AND/OR ? (superposition)
-   - Rotation ? (angle constant)
+POUR LES CALCULS : montre les étapes clés
+POUR LES QCM : analyse chaque option si nécessaire
 
-3. RÈGLES PAR COLONNE - Mêmes tests verticalement
-
-4. PRÉDICTION - Combine règles lignes + colonnes pour prédire [3,3]
-
-5. RÉPONSE FINALE - Compare avec les options, choisis la meilleure
-
-RÈGLES CRITIQUES :
-- TOUJOURS décrire AVANT de raisonner
-- Plusieurs règles coexistent (une par attribut)
-- Chaque attribut est INDÉPENDANT
-
-FORMAT OUTPUT FINAL (dernière ligne) :
+FORMAT FINAL (dernière ligne obligatoire) :
 "Question [numéro] réponse [lettre]"
 
-Si vraiment pas sûr après analyse complète : "Pas sûr"
-Si illisible : "Recommence"`;
+Si illisible : "Recommence"
+Si vraiment pas sûr : "Pas sûr"`;
 
-const PROMPT_COMPLEX = `EXPERT EN RÉSOLUTION. Le prof parle peut-être.
+const PROMPT_COMPLEX = `Tu es un expert. Résous l'exercice. Le prof parle peut-être, écoute ce qu'il dit.
 
-Si c'est une MATRICE DE RAVEN :
-1. Décris CHAQUE cellule (formes, nombre, taille, remplissage, orientation)
-2. Trouve les règles par LIGNE (constante, progression, distribution, XOR, rotation...)
-3. Trouve les règles par COLONNE
-4. Prédit la cellule manquante
-5. Compare avec les options
+MÉTHODE : Analyse, calcule, vérifie, réponds.
 
-Si c'est une AUTRE QUESTION : réponds directement
-
-FORMAT OUTPUT FINAL :
+FORMAT FINAL :
 "Question [numéro] réponse [lettre]" ou réponse courte
-Si pas sûr : "Pas sûr"
 Si illisible : "Recommence"`;
 
 // Health check
