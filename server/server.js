@@ -6,7 +6,7 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-// Claude Opus - le plus intelligent pour le raisonnement
+// Claude Sonnet - bon compromis vitesse/qualité
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Prompts
@@ -38,7 +38,7 @@ Si illisible : "Recommence"`;
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', model: 'claude-opus-4-20250514', tts: 'browser', modes: ['simple', 'complex'] });
+  res.json({ status: 'ok', model: 'claude-sonnet-4-20250514', tts: 'browser', modes: ['simple', 'complex'] });
 });
 
 // Main analyze endpoint
@@ -82,9 +82,9 @@ app.post('/analyze', async (req, res) => {
     content.push({ type: 'text', text: prompt });
 
     // Call Claude
-    console.log('Calling Claude Opus...');
+    console.log('Calling Claude Sonnet...');
     const response = await anthropic.messages.create({
-      model: 'claude-opus-4-20250514',
+      model: 'claude-sonnet-4-20250514',
       max_tokens: 2000,
       messages: [{ role: 'user', content }]
     });
@@ -131,7 +131,7 @@ app.post('/analyze', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Vision Assistant Server running on port ${PORT}`);
-  console.log('Model: Claude Opus 4 (Anthropic)');
+  console.log('Model: Claude Sonnet 4 (Anthropic)');
   console.log('TTS: Browser-based (Web Speech API)');
   console.log('Endpoints:');
   console.log('  GET  /health');
