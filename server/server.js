@@ -1,13 +1,14 @@
 const express = require('express');
 const cors = require('cors');
-const Anthropic = require('@anthropic-ai/sdk');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-// Claude Haiku - bon compromis vitesse/qualité
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// Gemini 1.5 Flash - rapide, gratuit, bon en calculs
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 // Prompts
 const PROMPT_SIMPLE = `Tu es un expert qui résout des exercices. Analyse l'image et donne LA BONNE RÉPONSE.
@@ -38,7 +39,7 @@ Si illisible : "Recommence"`;
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', model: 'claude-3-haiku-20240307', tts: 'browser', modes: ['simple', 'complex'] });
+  res.json({ status: 'ok', model: 'gemini-1.5-flash', tts: 'browser', modes: ['simple', 'complex'] });
 });
 
 // Main analyze endpoint
@@ -58,17 +59,15 @@ app.post('/analyze', async (req, res) => {
 
     console.log(`[${new Date().toISOString()}] Mode: ${isComplex ? 'COMPLEX' : 'SIMPLE'}, Images: ${imageList.length}, Transcription: ${transcription ? 'yes' : 'no'}`);
 
-    // Build Claude request
-    const content = [];
+    // Build Gemini request
+    const parts = [];
 
     // Add images
     for (const imgData of imageList) {
       const base64Data = imgData.replace(/^data:image\/\w+;base64,/, '');
-      content.push({
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: 'image/jpeg',
+      parts.push({
+        inlineData: {
+          mimeType: 'image/jpeg',
           data: base64Data
         }
       });
@@ -79,25 +78,22 @@ app.post('/analyze', async (req, res) => {
     if (transcription) {
       prompt += `\n\nLe professeur dit : "${transcription}"`;
     }
-    content.push({ type: 'text', text: prompt });
+    parts.push({ text: prompt });
 
-    // Call Claude
-    console.log('Calling Claude Haiku...');
-    const response = await anthropic.messages.create({
-      model: 'claude-3-haiku-20240307',
-      max_tokens: 2000,
-      messages: [{ role: 'user', content }]
-    });
+    // Call Gemini
+    console.log('Calling Gemini 1.5 Flash...');
+    const result = await model.generateContent(parts);
+    const response = await result.response;
+    const fullResponse = response.text();
 
-    const fullResponse = response.content[0].text;
-    console.log(`Claude full response: "${fullResponse.substring(0, 200)}..."`);
+    console.log(`Gemini full response: "${fullResponse.substring(0, 200)}..."`);
 
     // Extraire seulement la réponse finale (dernière ligne avec "Question X réponse Y" ou "Pas sûr" ou "Recommence")
     const lines = fullResponse.trim().split('\n').filter(l => l.trim());
     let finalAnswer = lines[lines.length - 1]; // Dernière ligne par défaut
 
     // Chercher la ligne avec la réponse
-    for (const line of lines.reverse()) {
+    for (const line of [...lines].reverse()) {
       if (line.match(/question\s*\d+\s*réponse\s*[a-e]/i) ||
           line.match(/pas sûr/i) ||
           line.match(/recommence/i)) {
@@ -114,7 +110,7 @@ app.post('/analyze', async (req, res) => {
     res.json({
       success: true,
       text: finalAnswer,
-      fullAnalysis: fullResponse, // Garder l'analyse complète si besoin
+      fullAnalysis: fullResponse,
       mode: isComplex ? 'complex' : 'simple',
       timing: totalTime
     });
@@ -131,7 +127,7 @@ app.post('/analyze', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Vision Assistant Server running on port ${PORT}`);
-  console.log('Model: Claude Haiku 4 (Anthropic)');
+  console.log('Model: Gemini 1.5 Flash (Google)');
   console.log('TTS: Browser-based (Web Speech API)');
   console.log('Endpoints:');
   console.log('  GET  /health');
