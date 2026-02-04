@@ -10,29 +10,57 @@ app.use(express.json({ limit: '50mb' }));
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Prompts
-const PROMPT_SIMPLE = `Tu dois donner LA BONNE RÉPONSE. Si tu n'es pas SÛR À 100%, dis "Pas sûr".
+const PROMPT_SIMPLE = `RAVEN MATRIX EXPERT. Protocole OBLIGATOIRE :
 
-MÉTHODE (analyse mentalement, n'écris rien) :
-1. Identifie la règle de chaque LIGNE
-2. Identifie la règle de chaque COLONNE
-3. Vérifie que ta réponse respecte LES DEUX règles
-4. Si doute → "Pas sûr"
+1. PERCEPTION - Décris CHAQUE cellule [ligne,colonne] :
+   - Formes présentes
+   - Nombre d'éléments
+   - Taille (petit/moyen/grand)
+   - Remplissage (noir/blanc/gris/hachuré)
+   - Orientation (angle)
+   - Position dans la cellule
 
-OUTPUT (une seule ligne) :
-- Sûr → "Question [numéro] réponse [lettre]"
-- Pas sûr → "Pas sûr"
-- Illisible → "Recommence"
+2. RÈGLES PAR LIGNE - Pour chaque ligne, teste :
+   - Constante ? (attribut identique)
+   - Progression ? (+1, +2, etc.)
+   - Distribution de 3 ? (3 valeurs différentes)
+   - Addition/Soustraction ? (C1+C2=C3)
+   - XOR ? (éléments communs disparaissent)
+   - AND/OR ? (superposition)
+   - Rotation ? (angle constant)
 
-INTERDIT : explication, justification, analyse écrite, emoji`;
+3. RÈGLES PAR COLONNE - Mêmes tests verticalement
 
-const PROMPT_COMPLEX = `Donne LA BONNE RÉPONSE. Si pas sûr à 100%, dis "Pas sûr". Le prof parle.
+4. PRÉDICTION - Combine règles lignes + colonnes pour prédire [3,3]
 
-OUTPUT :
-- Sûr → "Question [numéro] réponse [lettre]" ou réponse courte
-- Pas sûr → "Pas sûr"
-- Illisible → "Recommence"
+5. RÉPONSE FINALE - Compare avec les options, choisis la meilleure
 
-INTERDIT : explication, justification, emoji`;
+RÈGLES CRITIQUES :
+- TOUJOURS décrire AVANT de raisonner
+- Plusieurs règles coexistent (une par attribut)
+- Chaque attribut est INDÉPENDANT
+
+FORMAT OUTPUT FINAL (dernière ligne) :
+"Question [numéro] réponse [lettre]"
+
+Si vraiment pas sûr après analyse complète : "Pas sûr"
+Si illisible : "Recommence"`;
+
+const PROMPT_COMPLEX = `EXPERT EN RÉSOLUTION. Le prof parle peut-être.
+
+Si c'est une MATRICE DE RAVEN :
+1. Décris CHAQUE cellule (formes, nombre, taille, remplissage, orientation)
+2. Trouve les règles par LIGNE (constante, progression, distribution, XOR, rotation...)
+3. Trouve les règles par COLONNE
+4. Prédit la cellule manquante
+5. Compare avec les options
+
+Si c'est une AUTRE QUESTION : réponds directement
+
+FORMAT OUTPUT FINAL :
+"Question [numéro] réponse [lettre]" ou réponse courte
+Si pas sûr : "Pas sûr"
+Si illisible : "Recommence"`;
 
 // Health check
 app.get('/health', (req, res) => {
@@ -80,22 +108,39 @@ app.post('/analyze', async (req, res) => {
     content.push({ type: 'text', text: prompt });
 
     // Call Claude
-    console.log('Calling Claude Sonnet...');
+    console.log('Calling Claude Opus...');
     const response = await anthropic.messages.create({
       model: 'claude-opus-4-20250514',
-      max_tokens: 200,
+      max_tokens: 2000,
       messages: [{ role: 'user', content }]
     });
 
-    const responseText = response.content[0].text;
-    console.log(`Claude response: "${responseText.substring(0, 100)}..."`);
+    const fullResponse = response.content[0].text;
+    console.log(`Claude full response: "${fullResponse.substring(0, 200)}..."`);
+
+    // Extraire seulement la réponse finale (dernière ligne avec "Question X réponse Y" ou "Pas sûr" ou "Recommence")
+    const lines = fullResponse.trim().split('\n').filter(l => l.trim());
+    let finalAnswer = lines[lines.length - 1]; // Dernière ligne par défaut
+
+    // Chercher la ligne avec la réponse
+    for (const line of lines.reverse()) {
+      if (line.match(/question\s*\d+\s*réponse\s*[a-e]/i) ||
+          line.match(/pas sûr/i) ||
+          line.match(/recommence/i)) {
+        finalAnswer = line.trim();
+        break;
+      }
+    }
+
+    console.log(`Final answer: "${finalAnswer}"`);
 
     const totalTime = Date.now() - startTime;
     console.log(`Total time: ${totalTime}ms`);
 
     res.json({
       success: true,
-      text: responseText,
+      text: finalAnswer,
+      fullAnalysis: fullResponse, // Garder l'analyse complète si besoin
       mode: isComplex ? 'complex' : 'simple',
       timing: totalTime
     });
@@ -112,7 +157,7 @@ app.post('/analyze', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Vision Assistant Server running on port ${PORT}`);
-  console.log('Model: Claude Sonnet 3.5 (Anthropic)');
+  console.log('Model: Claude Opus 4 (Anthropic)');
   console.log('TTS: Browser-based (Web Speech API)');
   console.log('Endpoints:');
   console.log('  GET  /health');
