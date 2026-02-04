@@ -8,7 +8,7 @@ app.use(express.json({ limit: '50mb' }));
 
 // Gemini 1.5 Flash - rapide, gratuit, bon en calculs
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
 // Prompts
 const PROMPT_SIMPLE = `Tu es un expert qui résout des exercices. Analyse l'image et donne LA BONNE RÉPONSE.
@@ -39,7 +39,7 @@ Si illisible : "Recommence"`;
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', model: 'gemini-1.5-flash', tts: 'browser', modes: ['simple', 'complex'] });
+  res.json({ status: 'ok', model: 'gemini-2.0-flash', tts: 'browser', modes: ['simple', 'complex'] });
 });
 
 // Main analyze endpoint
