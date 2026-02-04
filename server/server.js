@@ -10,47 +10,33 @@ app.use(express.json({ limit: '50mb' }));
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Prompts
-const PROMPT_SIMPLE = `Tu es un expert en résolution de problèmes. RÉSOUS et DONNE LA RÉPONSE.
+const PROMPT_SIMPLE = `RÉPONDS UNIQUEMENT AVEC LA LETTRE DE LA RÉPONSE. Rien d'autre.
 
-POUR LES MATRICES DE LOGIQUE (grilles avec patterns) :
-1. Analyse chaque LIGNE : quel pattern se répète ou évolue ?
-2. Analyse chaque COLONNE : quel pattern se répète ou évolue ?
-3. Cherche : rotation, addition, soustraction, inversion des éléments
-4. La case manquante doit respecter BOTH la règle de ligne ET de colonne
-5. Vérifie ta réponse avant de répondre
+Analyse mentalement (ne l'écris pas) :
+- Patterns dans chaque ligne
+- Patterns dans chaque colonne
+- Rotation, addition, soustraction, XOR des éléments
+- Vérifie que ta réponse respecte TOUTES les règles
 
-FORMAT STRICT :
-QCM/Matrices → "Question X réponse Y"
-CALCUL → Résultat direct (ex: "42")
-PROBLÈME → Solution courte
+OUTPUT EXACT :
+"Question [numéro] réponse [lettre]"
 
-SI TU NE PEUX PAS LIRE → Dis "Recommence"
+Exemples de réponses correctes :
+- "Question 122 réponse B"
+- "Question 45 réponse A"
 
-RÈGLES :
-- JAMAIS d'emoji
-- JAMAIS de justification
-- JAMAIS poser de question
-- Français uniquement
-- Maximum 2 phrases`;
+INTERDIT : explication, justification, analyse écrite, emoji
+Si illisible : "Recommence"`;
 
-const PROMPT_COMPLEX = `Tu es un expert. Le prof parle, réponds à sa question.
+const PROMPT_COMPLEX = `RÉPONDS UNIQUEMENT AVEC LA RÉPONSE. Le prof parle.
 
-POUR LES MATRICES DE LOGIQUE :
-1. Analyse lignes et colonnes
-2. Cherche rotation, addition, soustraction, inversion
-3. Vérifie ta réponse
+OUTPUT :
+- QCM/Matrices → "Question [numéro] réponse [lettre]"
+- Calcul → juste le résultat
+- Question du prof → réponse courte (max 1 phrase)
 
-FORMAT :
-QCM/Matrices → "Question X réponse Y"
-CALCUL → Résultat direct
-PROBLÈME → Solution courte
-
-SI ILLISIBLE → "Recommence"
-
-RÈGLES :
-- JAMAIS d'emoji ni justification
-- Réponds au prof si il demande
-- Français, max 3 phrases`;
+INTERDIT : explication, justification, emoji
+Si illisible : "Recommence"`;
 
 // Health check
 app.get('/health', (req, res) => {
