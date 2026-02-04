@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>VA Test</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%; height: 100%;
+            background: #000;
+            font-family: -apple-system, system-ui, sans-serif;
+            overflow: hidden;
+        }
+        #camera {
+            width: 100%; height: 100%;
+            object-fit: cover;
+            position: absolute;
+            top: 0; left: 0;
+        }
+        #overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 40px 20px;
+        }
+        #captureBtn {
+            width: 80px; height: 80px;
+            border-radius: 50%;
+            background: #fff;
+            border: 4px solid #333;
+            margin: 0 auto 30px;
+            cursor: pointer;
+            transition: all 0.1s;
+        }
+        #captureBtn:active {
+            transform: scale(0.9);
+            background: #ddd;
+        }
+        #captureBtn.processing {
+            background: #3b82f6;
+            animation: pulse 0.5s infinite;
+        }
+        #captureBtn.success {
+            background: #22c55e;
+        }
+        #captureBtn.error {
+            background: #ef4444;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(0.95); }
+        }
+        #status {
+            text-align: center;
+            color: #fff;
+            font-size: 14px;
+            margin-bottom: 20px;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+            min-height: 60px;
+            padding: 0 10px;
+        }
+        #startScreen {
+            position: absolute;
+            inset: 0;
+            background: #111;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            z-index: 100;
+        }
+        #startScreen h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        #startScreen p {
+            font-size: 14px;
+            color: #888;
+            margin-bottom: 30px;
+            text-align: center;
+            padding: 0 20px;
+        }
+        #startBtn {
+            padding: 15px 40px;
+            font-size: 18px;
+            background: #22c55e;
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+        }
+        .hidden { display: none !important; }
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+    <div id="startScreen">
+        <h1>Vision Assistant</h1>
+        <p>Connecte tes AirPods AVANT de cliquer</p>
+        <button id="startBtn">Demarrer</button>
+    </div>
+
+    <video id="camera" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+
+    <div id="overlay" class="hidden">
+        <div id="status">Pret</div>
+        <button id="captureBtn"></button>
+    </div>
+
+    <script>
+        const SERVER = 'https://vision-assistant-server.onrender.com';
+
+        const startScreen = document.getElementById('startScreen');
+        const startBtn = document.getElementById('startBtn');
+        const camera = document.getElementById('camera');
+        const canvas = document.getElementById('canvas');
+        const overlay = document.getElementById('overlay');
+        const captureBtn = document.getElementById('captureBtn');
+        const statusEl = document.getElementById('status');
+
+        let stream = null;
+        let synth = window.speechSynthesis;
+        let frenchVoice = null;
+        let audioContext = null;
+
+        // Charger les voix
+        function loadVoices() {
+            const voices = synth.getVoices();
+            // Priorité : voix française de qualité
+            frenchVoice = voices.find(v => v.lang === 'fr-FR' && v.name.includes('Thomas')) ||
+                          voices.find(v => v.lang === 'fr-FR' && v.name.includes('Amelie')) ||
+                          voices.find(v => v.lang === 'fr-FR') ||
+                          voices.find(v => v.lang.startsWith('fr')) ||
+                          voices[0];
+            console.log('Voix chargée:', frenchVoice?.name);
+        }
+
+        synth.onvoiceschanged = loadVoices;
+        setTimeout(loadVoices, 100);
+        setTimeout(loadVoices, 500);
+
+        // TTS - avec workaround iOS
+        function speak(text) {
+            return new Promise((resolve) => {
+                // iOS fix: cancel any pending speech
+                synth.cancel();
+
+                // iOS fix: small delay
+                setTimeout(() => {
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.voice = frenchVoice;
+                    utterance.lang = 'fr-FR';
+                    utterance.rate = 1.0;
+                    utterance.pitch = 1.0;
+                    utterance.volume = 1.0;
+
+                    utterance.onend = () => {
+                        console.log('TTS terminé');
+                        resolve();
+                    };
+                    utterance.onerror = (e) => {
+                        console.error('TTS erreur:', e);
+                        resolve();
+                    };
+
+                    // iOS fix: keep speech synthesis alive
+                    const intervalId = setInterval(() => {
+                        if (!synth.speaking) {
+                            clearInterval(intervalId);
+                        } else {
+                            synth.pause();
+                            synth.resume();
+                        }
+                    }, 10000);
+
+                    synth.speak(utterance);
+                    console.log('TTS démarré:', text.substring(0, 50));
+                }, 100);
+            });
+        }
+
+        // Test audio au démarrage (débloque iOS)
+        function unlockAudio() {
+            // Créer AudioContext
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+            // Jouer un son silencieux
+            const buffer = audioContext.createBuffer(1, 1, 22050);
+            const source = audioContext.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioContext.destination);
+            source.start();
+
+            // Test TTS avec texte court
+            const testUtterance = new SpeechSynthesisUtterance('.');
+            testUtterance.volume = 0.01;
+            synth.speak(testUtterance);
+
+            console.log('Audio débloqué');
+        }
+
+        startBtn.onclick = async () => {
+            try {
+                // Débloquer audio iOS
+                unlockAudio();
+
+                // Demander accès caméra
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                });
+                camera.srcObject = stream;
+
+                // Recharger les voix après interaction
+                loadVoices();
+
+                startScreen.classList.add('hidden');
+                overlay.classList.remove('hidden');
+
+                statusEl.textContent = 'Pret - Appuie sur le bouton';
+
+                // Test TTS
+                await speak('Prêt');
+
+            } catch (e) {
+                alert('Erreur: ' + e.message);
+            }
+        };
+
+        captureBtn.onclick = async () => {
+            if (captureBtn.classList.contains('processing')) return;
+
+            captureBtn.className = 'processing';
+            statusEl.textContent = 'Capture...';
+
+            try {
+                // Capture photo
+                canvas.width = camera.videoWidth;
+                canvas.height = camera.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(camera, 0, 0);
+
+                const imageData = canvas.toDataURL('image/jpeg', 0.85);
+                statusEl.textContent = 'Analyse...';
+
+                // Envoyer au serveur
+                const response = await fetch(SERVER + '/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: imageData })
+                });
+
+                const data = await response.json();
+
+                if (data.success && data.text) {
+                    statusEl.textContent = data.text;
+                    captureBtn.className = 'success';
+
+                    // TTS
+                    await speak(data.text);
+
+                    setTimeout(() => {
+                        captureBtn.className = '';
+                        statusEl.textContent = 'Pret';
+                    }, 2000);
+                } else {
+                    throw new Error(data.error || 'Erreur serveur');
+                }
+
+            } catch (e) {
+                captureBtn.className = 'error';
+                statusEl.textContent = 'Erreur: ' + e.message;
+
+                setTimeout(() => {
+                    captureBtn.className = '';
+                    statusEl.textContent = 'Pret';
+                }, 3000);
+            }
+        };
+    </script>
+</body>
+</html>

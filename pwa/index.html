@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <title>VA</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+            touch-action: manipulation;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        #app {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        #status {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: transparent;
+            transition: all 0.2s;
+        }
+        #status.ready { background: #22c55e; }
+        #status.recording { background: #f97316; animation: pulse 1s infinite; }
+        #status.processing { background: #3b82f6; animation: pulse 0.5s infinite; }
+        #status.error { background: #ef4444; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: translateX(-50%) scale(1); }
+            50% { opacity: 0.5; transform: translateX(-50%) scale(1.3); }
+        }
+        #startScreen {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+            font-family: system-ui, sans-serif;
+            font-size: 14px;
+        }
+        #config {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 60px;
+            height: 60px;
+        }
+        #configPanel {
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: #111;
+            padding: 40px 20px;
+            color: #fff;
+            font-family: system-ui, sans-serif;
+        }
+        #configPanel.show { display: block; }
+        #configPanel h2 { font-size: 18px; margin-bottom: 20px; }
+        #configPanel label { display: block; font-size: 12px; color: #888; margin-top: 15px; }
+        #configPanel input {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 14px;
+        }
+        #configPanel button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 20px;
+            background: #22c55e;
+            border: none;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        #debugLog {
+            position: absolute;
+            bottom: 70px;
+            left: 10px;
+            right: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 10px;
+            color: #444;
+            display: none;
+        }
+        #debugLog.show { display: block; }
+        .log-line { padding: 2px 0; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div id="status"></div>
+        <div id="startScreen">Tap to start</div>
+        <div id="config"></div>
+        <div id="debugLog"></div>
+    </div>
+
+    <div id="configPanel">
+        <h2>Configuration</h2>
+        <label>Server URL</label>
+        <input type="text" id="serverUrl" placeholder="https://your-server.onrender.com">
+        <label>XIAO IP (WiFi AP)</label>
+        <input type="text" id="xiaoIp" placeholder="192.168.4.1">
+        <label>Flic Key (ex: Enter)</label>
+        <input type="text" id="flicKey" placeholder="Enter">
+        <button onclick="saveConfig()">Save & Close</button>
+        <button onclick="toggleDebug()" style="background:#333;margin-top:10px;">Toggle Debug</button>
+    </div>
+
+    <script>
+        // ==================== CONFIG ====================
+        let CONFIG = {
+            serverUrl: localStorage.getItem('va_server') || 'https://vision-assistant.onrender.com',
+            xiaoIp: localStorage.getItem('va_xiao') || '192.168.4.1',
+            flicKey: localStorage.getItem('va_key') || 'Enter'
+        };
+
+        // ==================== STATE ====================
+        let isActive = false;
+        let pressStart = 0;
+        let burstInterval = null;
+        let capturedImages = [];
+        let isRecordingAudio = false;
+        let wakeLock = null;
+        let silenceAudio = null;
+        let debugMode = false;
+
+        // ==================== DOM ====================
+        const status = document.getElementById('status');
+        const startScreen = document.getElementById('startScreen');
+        const configPanel = document.getElementById('configPanel');
+        const debugLog = document.getElementById('debugLog');
+
+        // ==================== LOGGING ====================
+        function log(msg) {
+            console.log(`[VA] ${msg}`);
+            if (debugMode) {
+                const line = document.createElement('div');
+                line.className = 'log-line';
+                line.textContent = `${new Date().toLocaleTimeString()} ${msg}`;
+                debugLog.appendChild(line);
+                debugLog.scrollTop = debugLog.scrollHeight;
+            }
+        }
+
+        // ==================== INIT ====================
+        async function init() {
+            log('Initializing...');
+
+            // Request wake lock
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                log('Wake lock acquired');
+            } catch (e) {
+                log('Wake lock failed: ' + e.message);
+            }
+
+            // Play silence to keep audio session active
+            playSilence();
+
+            // Setup event listeners
+            document.addEventListener('keydown', handleKeyDown);
+            document.addEventListener('keyup', handleKeyUp);
+
+            // Config panel: long press bottom right
+            let configPressStart = 0;
+            document.getElementById('config').addEventListener('touchstart', () => {
+                configPressStart = Date.now();
+            });
+            document.getElementById('config').addEventListener('touchend', () => {
+                if (Date.now() - configPressStart > 2000) {
+                    showConfig();
+                }
+            });
+
+            // Double tap as backup trigger
+            let lastTap = 0;
+            document.getElementById('app').addEventListener('touchend', (e) => {
+                const now = Date.now();
+                if (now - lastTap < 300) {
+                    e.preventDefault();
+                    simulateClick();
+                }
+                lastTap = now;
+            });
+
+            startScreen.style.display = 'none';
+            status.className = 'ready';
+            isActive = true;
+            log('Ready! Listening for Flic button...');
+        }
+
+        // ==================== SILENCE LOOP ====================
+        function playSilence() {
+            // Create a very quiet oscillator to keep audio session alive
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = ctx.createOscillator();
+            const gain = ctx.createGain();
+            gain.gain.value = 0.001; // Nearly silent
+            oscillator.connect(gain);
+            gain.connect(ctx.destination);
+            oscillator.start();
+            log('Silence loop started');
+        }
+
+        // ==================== KEY HANDLING ====================
+        function handleKeyDown(e) {
+            if (!isActive) return;
+            if (e.repeat) return; // Ignore key repeat
+            if (e.key !== CONFIG.flicKey) return;
+
+            log(`Key down: ${e.key}`);
+            pressStart = Date.now();
+            capturedImages = [];
+
+            // Start long press timer
+            setTimeout(() => {
+                if (pressStart > 0 && Date.now() - pressStart >= 2000) {
+                    log('Long press detected - starting burst mode');
+                    status.className = 'recording';
+                    startBurstCapture();
+                    startAudioRecording();
+                }
+            }, 2000);
+        }
+
+        function handleKeyUp(e) {
+            if (!isActive) return;
+            if (e.key !== CONFIG.flicKey) return;
+
+            const duration = Date.now() - pressStart;
+            pressStart = 0;
+            log(`Key up after ${duration}ms`);
+
+            if (duration < 2000) {
+                // Simple mode: single photo
+                log('Simple mode - single capture');
+                status.className = 'processing';
+                captureSinglePhoto();
+            } else {
+                // Complex mode: stop burst and send all
+                log('Complex mode - stopping burst');
+                status.className = 'processing';
+                stopBurstCapture();
+                stopAudioRecording();
+            }
+        }
+
+        // Backup: simulate click via double tap
+        function simulateClick() {
+            log('Simulated click via double tap');
+            status.className = 'processing';
+            captureSinglePhoto();
+        }
+
+        // ==================== CAPTURE FUNCTIONS ====================
+        async function captureSinglePhoto() {
+            try {
+                const imageData = await captureFromXiao();
+                if (imageData) {
+                    capturedImages = [imageData];
+                    sendToServer(false);
+                } else {
+                    showError();
+                }
+            } catch (e) {
+                log('Capture error: ' + e.message);
+                showError();
+            }
+        }
+
+        function startBurstCapture() {
+            isRecordingAudio = true;
+            burstInterval = setInterval(async () => {
+                try {
+                    const imageData = await captureFromXiao();
+                    if (imageData) {
+                        capturedImages.push(imageData);
+                        log(`Burst: ${capturedImages.length} images`);
+                    }
+                } catch (e) {
+                    log('Burst capture error: ' + e.message);
+                }
+            }, 1000);
+        }
+
+        function stopBurstCapture() {
+            if (burstInterval) {
+                clearInterval(burstInterval);
+                burstInterval = null;
+            }
+        }
+
+        async function startAudioRecording() {
+            try {
+                const response = await fetchWithTimeout(`http://${CONFIG.xiaoIp}/audio/start`, 2000);
+                log('Audio recording started');
+            } catch (e) {
+                log('Audio start error: ' + e.message);
+            }
+        }
+
+        async function stopAudioRecording() {
+            isRecordingAudio = false;
+            let audioData = null;
+
+            try {
+                const response = await fetchWithTimeout(`http://${CONFIG.xiaoIp}/audio/stop`, 5000);
+                const blob = await response.blob();
+                audioData = await blobToBase64(blob);
+                log('Audio recording stopped, size: ' + Math.round(audioData.length / 1024) + 'KB');
+            } catch (e) {
+                log('Audio stop error: ' + e.message);
+            }
+
+            sendToServer(true, audioData);
+        }
+
+        // ==================== XIAO COMMUNICATION ====================
+        async function captureFromXiao() {
+            try {
+                const response = await fetchWithTimeout(`http://${CONFIG.xiaoIp}/capture`, 3000);
+                const blob = await response.blob();
+                const base64 = await blobToBase64(blob);
+                log('Photo captured, size: ' + Math.round(base64.length / 1024) + 'KB');
+                return base64;
+            } catch (e) {
+                log('XIAO error: ' + e.message);
+                return null;
+            }
+        }
+
+        // ==================== SERVER COMMUNICATION ====================
+        async function sendToServer(isComplex, audioData = null) {
+            if (capturedImages.length === 0) {
+                log('No images to send');
+                showError();
+                return;
+            }
+
+            const payload = isComplex
+                ? { images: capturedImages, audio: audioData }
+                : { image: capturedImages[0] };
+
+            log(`Sending to server: ${capturedImages.length} images, complex: ${isComplex}`);
+
+            try {
+                const response = await fetch(CONFIG.serverUrl + '/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (data.success && data.audio) {
+                    log(`Response received in ${data.timing}ms`);
+                    playAudio(data.audio);
+                    status.className = 'ready';
+                } else {
+                    log('Server error: ' + (data.error || 'unknown'));
+                    showError();
+                }
+            } catch (e) {
+                log('Server error: ' + e.message);
+                showError();
+            }
+        }
+
+        // ==================== AUDIO PLAYBACK ====================
+        function playAudio(base64) {
+            const audio = new Audio('data:audio/mpeg;base64,' + base64);
+            audio.play().then(() => {
+                log('Playing audio response');
+            }).catch(e => {
+                log('Audio play error: ' + e.message);
+            });
+        }
+
+        // ==================== UTILITIES ====================
+        function fetchWithTimeout(url, timeout) {
+            return Promise.race([
+                fetch(url),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Timeout')), timeout)
+                )
+            ]);
+        }
+
+        function blobToBase64(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const base64 = reader.result.split(',')[1];
+                    resolve(base64);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        function showError() {
+            status.className = 'error';
+            if (navigator.vibrate) {
+                navigator.vibrate([200, 100, 200]);
+            }
+            setTimeout(() => {
+                status.className = 'ready';
+            }, 2000);
+        }
+
+        // ==================== CONFIG ====================
+        function showConfig() {
+            document.getElementById('serverUrl').value = CONFIG.serverUrl;
+            document.getElementById('xiaoIp').value = CONFIG.xiaoIp;
+            document.getElementById('flicKey').value = CONFIG.flicKey;
+            configPanel.classList.add('show');
+        }
+
+        function saveConfig() {
+            CONFIG.serverUrl = document.getElementById('serverUrl').value;
+            CONFIG.xiaoIp = document.getElementById('xiaoIp').value;
+            CONFIG.flicKey = document.getElementById('flicKey').value;
+
+            localStorage.setItem('va_server', CONFIG.serverUrl);
+            localStorage.setItem('va_xiao', CONFIG.xiaoIp);
+            localStorage.setItem('va_key', CONFIG.flicKey);
+
+            configPanel.classList.remove('show');
+            log('Config saved');
+        }
+
+        function toggleDebug() {
+            debugMode = !debugMode;
+            debugLog.classList.toggle('show', debugMode);
+        }
+
+        // ==================== START ====================
+        document.getElementById('startScreen').addEventListener('click', init);
+        document.getElementById('startScreen').addEventListener('touchend', init);
+    </script>
+</body>
+</html>
