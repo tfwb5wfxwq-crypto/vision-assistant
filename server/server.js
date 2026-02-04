@@ -38,7 +38,7 @@ Si illisible : "Recommence"`;
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', model: 'claude-3-5-haiku-20241022', tts: 'browser', modes: ['simple', 'complex'] });
+  res.json({ status: 'ok', model: 'claude-3-haiku-20240307', tts: 'browser', modes: ['simple', 'complex'] });
 });
 
 // Main analyze endpoint
@@ -84,7 +84,7 @@ app.post('/analyze', async (req, res) => {
     // Call Claude
     console.log('Calling Claude Haiku...');
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-haiku-20241022',
+      model: 'claude-3-haiku-20240307',
       max_tokens: 2000,
       messages: [{ role: 'user', content }]
     });
